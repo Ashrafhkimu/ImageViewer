@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Drawing;
-using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -8,29 +6,19 @@ using System.Windows.Forms;
 
 namespace ImageViewer
 {
-	class AsyncLoader_MessageQueue : Loader
+	class AsyncLoader_MessageQueue : AsyncLoaderBase
 	{
-		public delegate void ImageLoadedHandler( Image image );
-
-		public ImageLoadedHandler ImageLoaded;
-
-		private Control Context;
-
-		private Thread Thread;
-
 		private int ThreadId;
 		
 		private const uint MSG_LOAD_FILES = PInvoke.WM_USER + 1;
 		private const uint MSG_LOAD_IMAGE = PInvoke.WM_USER + 2;
 
-		public AsyncLoader_MessageQueue( Control context )
+		public AsyncLoader_MessageQueue( Control context ) : base( context )
 		{
-			Context = context;
-
-			Thread = new Thread( ThreadFunction );
-			Thread.IsBackground = true;
-			Thread.Start();
-			ThreadId = GetNativeThreadId( Thread );
+			Thread thread = new Thread( ThreadFunction );
+			thread.IsBackground = true;
+			thread.Start();
+			ThreadId = GetNativeThreadId( thread );
 		}
 
 		public override void LoadImageFiles( string dirpath )
@@ -96,29 +84,11 @@ namespace ImageViewer
 				if( needLoadImage )
 				{
 					if( imageFilePath == null )
-						Context.BeginInvoke( ImageLoaded, ( Image )null );
+						DoCancelLoadImage();
 					else
 						DoLoadImage( imageFilePath );
 				}
 			}
-		}
-
-		private void DoLoadFiles( string dirpath )
-		{
-			FileInfo[] files = { };
-
-			try { files = GetImageFiles( new DirectoryInfo( dirpath ) ); } catch { }
-
-			Context.BeginInvoke( FilesLoaded, ( object )files );
-		}
-
-		private void DoLoadImage( string filepath )
-		{
-			Image image = null;
-			
-			try { image = Image.FromFile( filepath ); } catch { }
-
-			Context.BeginInvoke( ImageLoaded, image );
 		}
 	}
 }

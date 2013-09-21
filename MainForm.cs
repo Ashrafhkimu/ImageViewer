@@ -13,8 +13,9 @@ namespace ImageViewer
 		{
 			InitializeComponent();
 
-			//Loader = CreateAsyncLoader();
-			Loader = CreateSyncLoader();
+			//Loader = CreateSyncLoader();
+			//Loader = CreateAsyncLoader1();
+			Loader = CreateAsyncLoader2();
 
 			DirectoriesTree.Load();
 			DirectoriesTree.AfterDirectorySelect += DirectoriesTree_AfterDirectorySelect;
@@ -29,9 +30,17 @@ namespace ImageViewer
 			return loader;
 		}
 
-		private Loader CreateAsyncLoader()
+		private Loader CreateAsyncLoader1()
 		{
 			AsyncLoader_MessageQueue loader = new AsyncLoader_MessageQueue( this );
+			loader.FilesLoaded += Loader_FilesLoaded;
+			loader.ImageLoaded += Loader_ImageLoaded;
+			return loader;
+		}
+
+		private Loader CreateAsyncLoader2()
+		{
+			AsyncLoader_Locks loader = new AsyncLoader_Locks( this );
 			loader.FilesLoaded += Loader_FilesLoaded;
 			loader.ImageLoaded += Loader_ImageLoaded;
 			return loader;
@@ -70,6 +79,9 @@ namespace ImageViewer
 				item.Tag = file.FullName;
 				ImagesList.Items.Add( item );
 			}
+
+			// руками вызываем обработчик изменения выделенных элементов списка
+			ImagesList_SelectedIndexChanged( null, null );
 		}
 
 		private void Loader_ImageLoaded( Image image )

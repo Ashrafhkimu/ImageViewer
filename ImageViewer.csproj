@@ -46,6 +46,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AsyncLoaderBase.cs" />
+    <Compile Include="AsyncLoader_Locks.cs" />
     <Compile Include="DirectoriesTreeView.cs">
       <SubType>Component</SubType>
     </Compile>
