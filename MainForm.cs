@@ -1,28 +1,36 @@
-﻿using System.IO;
-using System.Windows.Forms;
-using System;
+﻿using System;
 using System.Drawing;
+using System.IO;
+using System.Windows.Forms;
 
 namespace ImageViewer
 {
+	/// <summary>
+	/// Главное окно программы
+	/// </summary>
 	public partial class MainForm : Form
 	{
-		Loader Loader;
+		private Loader Loader;
 
 		public MainForm()
 		{
 			InitializeComponent();
 
+			Loader = CreateAsyncLoader();
 			//Loader = CreateSyncLoader();
-			//Loader = CreateAsyncLoader1();
-			Loader = CreateAsyncLoader2();
 
+			// загрузка и инициализация дерева папок
 			DirectoriesTree.Load();
 			DirectoriesTree.AfterDirectorySelect += DirectoriesTree_AfterDirectorySelect;
 
+			// инициализация списка файлов в выбранной папке
 			ImagesList.SelectedIndexChanged += ImagesList_SelectedIndexChanged;
 		}
 
+		/// <summary>
+		/// Создать экземпляр синхронного "загрузчика"
+		/// </summary>
+		/// <returns></returns>
 		private Loader CreateSyncLoader()
 		{
 			SyncLoader loader = new SyncLoader( PictureBox );
@@ -30,32 +38,46 @@ namespace ImageViewer
 			return loader;
 		}
 
-		private Loader CreateAsyncLoader1()
+		/// <summary>
+		/// Создать экезмпляр асинхронного "загрузчика"
+		/// </summary>
+		/// <returns></returns>
+		private Loader CreateAsyncLoader()
 		{
-			AsyncLoader_MessageQueue loader = new AsyncLoader_MessageQueue( this );
+			AsyncLoader loader = new AsyncLoader( this );
 			loader.FilesLoaded += Loader_FilesLoaded;
 			loader.ImageLoaded += Loader_ImageLoaded;
 			return loader;
 		}
 
-		private Loader CreateAsyncLoader2()
-		{
-			AsyncLoader_Locks loader = new AsyncLoader_Locks( this );
-			loader.FilesLoaded += Loader_FilesLoaded;
-			loader.ImageLoaded += Loader_ImageLoaded;
-			return loader;
-		}
-
+		/// <summary>
+		/// Обработчик пункта "Выход" в главном меню.
+		/// Вызывает закрытие главного окна и завершение приложения.
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
 		private void ExitMenuItem_Click( object sender, System.EventArgs e )
 		{
 			Close();
 		}
 
+		/// <summary>
+		/// Обработчик выбора папки в дереве папок.
+		/// Использует загрузчик для загрузки списка файлов в папке
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="args"></param>
 		private void DirectoriesTree_AfterDirectorySelect( object sender, DirectoryTreeViewEventArgs args )
 		{
 			Loader.LoadImageFiles( args.DirectoryPath );
 		}
 
+		/// <summary>
+		/// Обработчик выбора файла в списке файлов.
+		/// Использует загрузчик для загрузки изображения из файла.
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="e"></param>
 		private void ImagesList_SelectedIndexChanged( object sender, EventArgs e )
 		{
 			if( ImagesList.SelectedItems.Count == 1 )
@@ -70,8 +92,13 @@ namespace ImageViewer
 			}
 		}
 
+		/// <summary>
+		/// Обработчик, принимающий от загрузчика список файлов в папке
+		/// </summary>
+		/// <param name="files"></param>
 		private void Loader_FilesLoaded( FileInfo[] files)
 		{
+			// показываем список файлов в ImagesList
 			ImagesList.Items.Clear();
 			foreach( FileInfo file in files )
 			{
@@ -80,10 +107,14 @@ namespace ImageViewer
 				ImagesList.Items.Add( item );
 			}
 
-			// руками вызываем обработчик изменения выделенных элементов списка
+			// руками вызываем обработчик изменения выбранного элемента списка
 			ImagesList_SelectedIndexChanged( null, null );
 		}
 
+		/// <summary>
+		/// Обработчик, принимающий от загрузчика изображение, загруженное из файла
+		/// </summary>
+		/// <param name="image"></param>
 		private void Loader_ImageLoaded( Image image )
 		{
 			PictureBox.Image = image;

@@ -46,12 +46,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="AsyncLoaderBase.cs" />
-    <Compile Include="AsyncLoader_Locks.cs" />
+    <Compile Include="AsyncLoader.cs" />
     <Compile Include="DirectoriesTreeView.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="AsyncLoader_MessageQueue.cs" />
     <Compile Include="Loader.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
@@ -59,7 +57,6 @@
     <Compile Include="MainForm.Designer.cs">
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
-    <Compile Include="PInvoke.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="SyncLoader.cs" />
   </ItemGroup>
