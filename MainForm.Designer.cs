@@ -31,7 +31,7 @@
 			this.splitContainer1 = new System.Windows.Forms.SplitContainer();
 			this.DirectoriesTree = new ImageViewer.DirectoriesTreeView();
 			this.splitContainer2 = new System.Windows.Forms.SplitContainer();
-			this.ImagesList = new System.Windows.Forms.ListView();
+			this.DirectoryView = new ImageViewer.DirectoryListView();
 			this.PictureBox = new System.Windows.Forms.PictureBox();
 			this.menuStrip1 = new System.Windows.Forms.MenuStrip();
 			this.FileMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -83,7 +83,7 @@
 			// 
 			// splitContainer2.Panel1
 			// 
-			this.splitContainer2.Panel1.Controls.Add(this.ImagesList);
+			this.splitContainer2.Panel1.Controls.Add(this.DirectoryView);
 			// 
 			// splitContainer2.Panel2
 			// 
@@ -93,16 +93,17 @@
 			this.splitContainer2.SplitterDistance = 163;
 			this.splitContainer2.TabIndex = 0;
 			// 
-			// ImagesList
+			// DirectoryView
 			// 
-			this.ImagesList.Dock = System.Windows.Forms.DockStyle.Fill;
-			this.ImagesList.Location = new System.Drawing.Point(0, 0);
-			this.ImagesList.MultiSelect = false;
-			this.ImagesList.Name = "ImagesList";
-			this.ImagesList.Size = new System.Drawing.Size(391, 163);
-			this.ImagesList.TabIndex = 0;
-			this.ImagesList.UseCompatibleStateImageBehavior = false;
-			this.ImagesList.View = System.Windows.Forms.View.List;
+			this.DirectoryView.Dock = System.Windows.Forms.DockStyle.Fill;
+			this.DirectoryView.Location = new System.Drawing.Point(0, 0);
+			this.DirectoryView.MultiSelect = false;
+			this.DirectoryView.Name = "DirectoryView";
+			this.DirectoryView.Size = new System.Drawing.Size(391, 163);
+			this.DirectoryView.TabIndex = 0;
+			this.DirectoryView.TileSize = new System.Drawing.Size(168, 24);
+			this.DirectoryView.UseCompatibleStateImageBehavior = false;
+			this.DirectoryView.View = System.Windows.Forms.View.Tile;
 			// 
 			// PictureBox
 			// 
@@ -169,7 +170,7 @@
 		#endregion
 
 		private DirectoriesTreeView DirectoriesTree;
-		private System.Windows.Forms.ListView ImagesList;
+		private DirectoryListView DirectoryView;
 		private System.Windows.Forms.PictureBox PictureBox;
 		private System.Windows.Forms.ToolStripMenuItem ExitMenuItem;
 		private System.Windows.Forms.SplitContainer splitContainer1;

@@ -1,5 +1,6 @@
-﻿using System.Drawing;
-using System.IO;
+﻿using System;
+using System.Diagnostics;
+using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -8,13 +9,13 @@ namespace ImageViewer
 	/// <summary>
 	/// Асинхронная реализация загрузчика.
 	/// В этой реализации
-	///   1) список файлов-изображений в указанной папке возвращается через обработчик FilesLoaded
+	///   1) загруженные thumbnail'ы возвращаются через обработчик ThumbnailLoaded
 	///   2) изображение, загруженное из файла, возвращается через обработчик ImageLoaded
 	/// </summary>
 	// Подробности реализации:
 	//    - Асинхронность обеспечивается запуском отдельного потока.  Передача заданий потоку и синхронизация
 	//      реализованы с использованием "мониторов", а именно блоков lock(...) и методов класса Monitor.
-	//    - Для каждого типа заданий (загрузка списка файлов, загрузка изображения из файла) нас интересует только
+	//    - Для каждого типа заданий (загрузка thumbnail'ов, загрузка изображения из файла) нас интересует только
 	//      последнее полученное задание, поэтому для хранения используются просто поля, а не очередь.
 	//    - Возвращение значений в GUI-поток реализовано с использованием метода System.Windows.Forms.Control.BeginInvoke,
 	//      который позволяет удобно выполнить указанный обработчик в GUI-потоке.
@@ -41,9 +42,10 @@ namespace ImageViewer
 		/// </summary>
 		private struct DataStruct
 		{
-			public bool NeedLoadImageFiles;
+			public bool NeedLoadThumbnails;
+			public ThumbnailRequest[] ThumbnailRequests;
+
 			public bool NeedLoadImage;
-			public string ImageFilesDir;
 			public string ImageFilePath;
 		}
 
@@ -80,16 +82,17 @@ namespace ImageViewer
 		}
 
 		/// <summary>
-		/// Загрузить список файлов-изображений в указанной папке.
-		/// Результаты возвращаются через обработчик FilesLoaded.
+		/// Загрузить список thumbnail'ов.
+		/// Отменяет предыдущий запрос на загрузку thumbnail'ов
+		/// Результаты возвращаются через обработчик ThumbnailLoaded.
 		/// </summary>
-		/// <param name="dirpath">Полный путь к папке</param>
-		public override void LoadImageFiles( string dirpath )
+		/// <param name="requests"></param>
+		public override void LoadThumbnails( Loader.ThumbnailRequest[] requests )
 		{
 			lock( _lock )
 			{
-				Data.ImageFilesDir = dirpath;
-				Data.NeedLoadImageFiles = true;
+				Data.ThumbnailRequests = requests;
+				Data.NeedLoadThumbnails = true;
 				Monitor.Pulse( _lock );
 			}
 		}
@@ -130,48 +133,72 @@ namespace ImageViewer
 		/// </summary>
 		private void ThreadFunction()
 		{
+			DataStruct data = new DataStruct();
+			data.ThumbnailRequests = new ThumbnailRequest[0];
+
+			// индекс thumbnail'а в массиве ThumbnailRequests, который нужно обработать следующим
+			int thumbnailIndex = 0;
+
 			while( true )
 			{
-				DataStruct dataCopy;
 				lock( _lock )
 				{
 					// если заданий ещё нет, блокируем поток в ожидании их поступления
-					if( ! Data.NeedLoadImageFiles && ! Data.NeedLoadImage )
+					if( ! ( thumbnailIndex < data.ThumbnailRequests.Length ) && ! Data.NeedLoadThumbnails && ! Data.NeedLoadImage )
 						Monitor.Wait( _lock );
 				
 					// копируем "слепок" заданий на текущий момент, для дальнейшего использования вне блокировки
-					dataCopy = Data;
+					data = Data;
 
-					Data.NeedLoadImageFiles = false;
+					// если поставлено новое задание на загрузку thumbnail'ов, необходимо сбросить индекс,
+					// чтобы новый массив thumbnail'ов начал обрабатываться с начала
+					if( Data.NeedLoadThumbnails )
+						thumbnailIndex = 0;
+
+					Data.NeedLoadThumbnails = false;
 					Data.NeedLoadImage = false;
 				}
 
-				// выполнение заданий
-				if( FilesLoaded != null && dataCopy.NeedLoadImageFiles )
-					DoLoadFiles( dataCopy.ImageFilesDir );
-
-				if( ImageLoaded != null && dataCopy.NeedLoadImage )
+				// Выполнение задания на загрузку thumbnail'ов.
+				// За одну итерацию обрабатывается один thumbnail, чтобы не блокировать поток надолго
+				// (например, пока мы обрабатываем текущий массив thumbnail'ов, может быть
+				// поставлено задание на обработку другого)
+				if( ThumbnailLoaded != null && thumbnailIndex < data.ThumbnailRequests.Length )
 				{
-					if( dataCopy.ImageFilePath == null )
+					DoLoadThumbnail( data.ThumbnailRequests[ thumbnailIndex ] );
+					++thumbnailIndex;
+				}
+
+				// выполнение задания на загрузку полноразмерного изображения
+				if( ImageLoaded != null && data.NeedLoadImage )
+				{
+					if( data.ImageFilePath == null )
 						DoCancelLoadImage();
 					else
-						DoLoadImage( dataCopy.ImageFilePath );
+						DoLoadImage( data.ImageFilePath );
 				}
 			}
 		}
 
 		/// <summary>
-		/// Реализации загрузки списка файлов-изображений в указанной папке.
+		/// Реализация загрузки thumbnail'а.
 		/// Выполняется во вспомогательном потоке
 		/// </summary>
-		/// <param name="dirpath"></param>
-		private void DoLoadFiles( string dirpath )
+		/// <param name="request"></param>
+		private new void DoLoadThumbnail( ThumbnailRequest request )
 		{
-			FileInfo[] files = { };
+			Image thumbnail = null;
+			try
+			{
+				thumbnail = base.DoLoadThumbnail( request );
+			}
+			catch( Exception e )
+			{
+				Debug.WriteLine( e );
+			}
 
-			try { files = GetImageFiles( new DirectoryInfo( dirpath ) ); } catch { }
-
-			Context.BeginInvoke( FilesLoaded, ( object )files );
+			if( thumbnail != null )
+				Context.BeginInvoke( ThumbnailLoaded, request, thumbnail );
 		}
 
 		/// <summary>
@@ -182,9 +209,16 @@ namespace ImageViewer
 		private void DoLoadImage( string filepath )
 		{
 			Image image = null;
-			
-			try { image = Image.FromFile( filepath ); } catch { }
+			try
+			{
+				image = Image.FromFile( filepath );
+			}
+			catch( Exception e )
+			{
+				Debug.WriteLine( e );
+			}
 
+			// при ошибке загрузки изображения обработчик вызывается с аргументов image = null
 			Context.BeginInvoke( ImageLoaded, image );
 		}
 

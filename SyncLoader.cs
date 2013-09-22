@@ -1,4 +1,6 @@
-﻿using System.IO;
+﻿using System;
+using System.Diagnostics;
+using System.Drawing;
 using System.Windows.Forms;
 
 namespace ImageViewer
@@ -6,7 +8,7 @@ namespace ImageViewer
 	/// <summary>
 	/// Синхронная реализация загрузчика.
 	/// В этой реализации
-	///   1) список файлов-изображений в указанной папке возвращается через обработчик FilesLoaded
+	///   1) загруженные thumbnail'ы возвращаются через обработчик ThumbnailLoaded
 	///   2) изображение, загруженное из файла, отображается в переданном контроле PictureBox
 	/// </summary>
 	class SyncLoader : Loader
@@ -26,20 +28,26 @@ namespace ImageViewer
 		}
 
 		/// <summary>
-		/// Загрузить список файлов-изображений в указанной папке.
-		/// Результаты возвращаются через обработчик FilesLoaded.
+		/// Загрузить список thumbnail'ов.
+		/// Отменяет предыдущий запрос на загрузку thumbnail'ов
+		/// Результаты возвращаются через обработчик ThumbnailLoaded.
 		/// </summary>
-		/// <param name="dirpath">Полный путь к папке</param>
-		public override void LoadImageFiles( string dirpath )
+		/// <param name="requests"></param>
+		public override void LoadThumbnails( ThumbnailRequest[] requests )
 		{
-			if( FilesLoaded == null )
-				return;
-
-			FileInfo[] files = { };
-			
-			try { files = GetImageFiles( new DirectoryInfo( dirpath ) ); } catch { }
-
-			FilesLoaded( files );
+			if( ThumbnailLoaded != null )
+				foreach( ThumbnailRequest request in requests )
+				{
+					try
+					{
+						using( Image thumbnail = DoLoadThumbnail( request ) )
+							ThumbnailLoaded( request, thumbnail );
+					}
+					catch( Exception e )
+					{
+						Debug.WriteLine( e );
+					}
+				}
 		}
 
 		/// <summary>

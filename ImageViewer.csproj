@@ -50,6 +50,9 @@
     <Compile Include="DirectoriesTreeView.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="DirectoryListView.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Loader.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
@@ -66,6 +69,9 @@
   <ItemGroup>
     <EmbeddedResource Include="res\folder-closed.png" />
     <EmbeddedResource Include="res\folder-opened.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="res\image.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
