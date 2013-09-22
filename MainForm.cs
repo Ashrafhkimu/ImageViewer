@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace ImageViewer
@@ -25,6 +26,15 @@ namespace ImageViewer
 
 			// инициализация списка файлов в выбранной папке
 			ImagesList.SelectedIndexChanged += ImagesList_SelectedIndexChanged;
+
+			// добавление картинок
+			ImageList imageList = new ImageList();
+			imageList.Images.Add( "folder-opened", LoadEmbeddedImage( "ImageViewer.res.folder-opened.png" ) );
+			imageList.Images.Add( "folder-closed", LoadEmbeddedImage( "ImageViewer.res.folder-closed.png" ) );
+
+			DirectoriesTree.ImageList = imageList;
+			DirectoriesTree.ImageKey = "folder-closed";
+			DirectoriesTree.SelectedImageKey = "folder-opened";
 		}
 
 		/// <summary>
@@ -48,6 +58,16 @@ namespace ImageViewer
 			loader.FilesLoaded += Loader_FilesLoaded;
 			loader.ImageLoaded += Loader_ImageLoaded;
 			return loader;
+		}
+
+		/// <summary>
+		/// Получить изображение, внедрённое в программу как ресурс
+		/// </summary>
+		/// <param name="name"></param>
+		/// <returns></returns>
+		private Image LoadEmbeddedImage( string name )
+		{
+			return Image.FromStream( Assembly.GetExecutingAssembly().GetManifestResourceStream( name ) );
 		}
 
 		/// <summary>
