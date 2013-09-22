@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Threading;
@@ -10,15 +11,16 @@ namespace ImageViewer
 	/// Асинхронная реализация загрузчика.
 	/// В этой реализации
 	///   1) загруженные thumbnail'ы возвращаются через обработчик ThumbnailLoaded
-	///   2) изображение, загруженное из файла, возвращается через обработчик ImageLoaded
+	///   2) полноразмерное изображение возвращается через обработчик ImageLoaded
 	/// </summary>
 	// Подробности реализации:
-	//    - Асинхронность обеспечивается запуском отдельного потока.  Передача заданий потоку и синхронизация
-	//      реализованы с использованием "мониторов", а именно блоков lock(...) и методов класса Monitor.
-	//    - Для каждого типа заданий (загрузка thumbnail'ов, загрузка изображения из файла) нас интересует только
-	//      последнее полученное задание, поэтому для хранения используются просто поля, а не очередь.
 	//    - Возвращение значений в GUI-поток реализовано с использованием метода System.Windows.Forms.Control.BeginInvoke,
 	//      который позволяет удобно выполнить указанный обработчик в GUI-потоке.
+	//    - Загрузку thumbnail'ов целесообразно выполнять в нескольких потоках,
+	//      поэтому используется метод ThreadPool.QueueUserWorkItem.
+	//    - Для загрузки полноразмерного изображения используется отдельный вспомогательный поток.
+	//      Передача заданий потоку и синхронизация реализованы с использованием "мониторов",
+	//      а именно блоков lock(...) и методов класса Monitor.
 	class AsyncLoader : Loader
 	{
 		/// <summary>
@@ -38,19 +40,32 @@ namespace ImageViewer
 		private Control Context;
 
 		/// <summary>
-		/// Структура данных для хранения заданий, поставленных загрузчику
+		/// Количество thumbnail'ов, которые возвращаются GUI-потоку за один раз.
+		/// Чем меньше это значение, тем быстрее пользователь заметит прогрузку
+		/// thumbnail'ов, но тем сильнее будет загружаться GUI-поток
+		/// (и будет медленнее реагировать на действия пользователя)
+		/// </summary>
+		private int THUMBNAILS_BUCKET_SIZE = 5;
+
+		/// <summary>
+		/// Максимальное количество задач по загрузке thumbnail'ов, которые потенциально
+		/// могут выполняться одновременно.  Чем больше это значение, тем быстрее будут
+		/// загружаться thumbnail'ы, но тем сильнее будет загружаться GUI-поток.
+		/// Неразумно делать это значение сильно бОльшим, чем количество ядер процессора.
+		/// </summary>
+		private int MAX_THUMBNAIL_TASKS = 2;
+
+		/// <summary>
+		/// Структура данных для хранения заданий, поставленных вспомогательному потоку
 		/// </summary>
 		private struct DataStruct
 		{
-			public bool NeedLoadThumbnails;
-			public ThumbnailRequest[] ThumbnailRequests;
-
 			public bool NeedLoadImage;
 			public string ImageFilePath;
 		}
 
 		/// <summary>
-		/// Описание заданий, поставленных загрузчику
+		/// Описание заданий, поставленных вспомогательному потоку
 		/// </summary>
 		// вынесено в структуру, чтобы удобнее было копировать
 		// все параметры заданий целиком (см. код ниже)
@@ -64,6 +79,11 @@ namespace ImageViewer
 		private object _lock = new object();
 
 		/// <summary>
+		/// Объект отмены для задач по загрузке thumbnail'ов
+		/// </summary>
+		private CancellationTokenSource ThumbnailsCts;
+
+		/// <summary>
 		/// Конструктор
 		/// </summary>
 		/// <param name="context">
@@ -74,7 +94,7 @@ namespace ImageViewer
 		{
 			Context = context;
 
-			// Запуск потока для асинхронного выполнения заданий.
+			// Запуск потока для асинхронной загрузки полноразмерных изображений.
 			// Должен быть фоновым (background), чтобы его наличие не блокировало завершение процесса.
 			Thread thread = new Thread( ThreadFunction );
 			thread.IsBackground = true;
@@ -84,16 +104,50 @@ namespace ImageViewer
 		/// <summary>
 		/// Загрузить список thumbnail'ов.
 		/// Отменяет предыдущий запрос на загрузку thumbnail'ов
-		/// Результаты возвращаются через обработчик ThumbnailLoaded.
+		/// Результаты возвращаются через обработчик ThumbnailsLoaded.
 		/// </summary>
 		/// <param name="requests"></param>
-		public override void LoadThumbnails( Loader.ThumbnailRequest[] requests )
+		public override void LoadThumbnails( ThumbnailRequest[] requests )
 		{
-			lock( _lock )
+			// отмена предыдущего запроса
+			if( ThumbnailsCts != null )
+				ThumbnailsCts.Cancel();
+
+			ThumbnailsCts = null;
+			if( requests.Length > 0 )
 			{
-				Data.ThumbnailRequests = requests;
-				Data.NeedLoadThumbnails = true;
-				Monitor.Pulse( _lock );
+				ThumbnailsCts = new CancellationTokenSource();
+				CancellationToken ct = ThumbnailsCts.Token;
+
+				List<ThumbnailRequest>[] requestsPerTask = new List<ThumbnailRequest>[ MAX_THUMBNAIL_TASKS ];
+
+				// Разбиваем массив запросов на подмассивы, так чтобы число
+				// подмассивов не превышало MAX_THUMBNAIL_TASKS.  Каждый подмассив
+				// затем обрабатывается отдельной задачей (task).
+				//
+				// Так как пользователю важно видеть подгрузку thumbnail'ов, распределяем
+				// запросы следующим образом: первые THUMBNAIL_BUCKET_SIZE запросов попадают в первый
+				// подмассив, вторые - во второй подмассив и так далее.  Когда подмассивы заканчиваются,
+				// по новой начинаем добавлять элементы в первый подмассив и далее.
+				//
+				int taskIndex = 0;
+				for( int i = 0; i < requests.Length; i += THUMBNAILS_BUCKET_SIZE )
+				{
+					if( requestsPerTask[ taskIndex ] == null )
+						requestsPerTask[ taskIndex ] = new List<ThumbnailRequest>();
+					for( int j = i; j < Math.Min( i + THUMBNAILS_BUCKET_SIZE, requests.Length ); j++ )
+						requestsPerTask[ taskIndex ].Add( requests[j] );
+					taskIndex = ( taskIndex + 1 ) % MAX_THUMBNAIL_TASKS;
+				}
+
+				foreach( List<ThumbnailRequest> taskRequests in requestsPerTask )
+					if( taskRequests != null )
+					{
+						ThumbnailRequest[] r = taskRequests.ToArray(); // осторожно с замыканиями!
+						ThreadPool.QueueUserWorkItem( delegate {
+							DoLoadThumbnails( r, ct );
+						});
+					}
 			}
 		}
 
@@ -133,40 +187,20 @@ namespace ImageViewer
 		/// </summary>
 		private void ThreadFunction()
 		{
-			DataStruct data = new DataStruct();
-			data.ThumbnailRequests = new ThumbnailRequest[0];
-
-			// индекс thumbnail'а в массиве ThumbnailRequests, который нужно обработать следующим
-			int thumbnailIndex = 0;
+			DataStruct data;
 
 			while( true )
 			{
 				lock( _lock )
 				{
 					// если заданий ещё нет, блокируем поток в ожидании их поступления
-					if( ! ( thumbnailIndex < data.ThumbnailRequests.Length ) && ! Data.NeedLoadThumbnails && ! Data.NeedLoadImage )
+					if( ! Data.NeedLoadImage )
 						Monitor.Wait( _lock );
 				
 					// копируем "слепок" заданий на текущий момент, для дальнейшего использования вне блокировки
 					data = Data;
 
-					// если поставлено новое задание на загрузку thumbnail'ов, необходимо сбросить индекс,
-					// чтобы новый массив thumbnail'ов начал обрабатываться с начала
-					if( Data.NeedLoadThumbnails )
-						thumbnailIndex = 0;
-
-					Data.NeedLoadThumbnails = false;
 					Data.NeedLoadImage = false;
-				}
-
-				// Выполнение задания на загрузку thumbnail'ов.
-				// За одну итерацию обрабатывается один thumbnail, чтобы не блокировать поток надолго
-				// (например, пока мы обрабатываем текущий массив thumbnail'ов, может быть
-				// поставлено задание на обработку другого)
-				if( ThumbnailLoaded != null && thumbnailIndex < data.ThumbnailRequests.Length )
-				{
-					DoLoadThumbnail( data.ThumbnailRequests[ thumbnailIndex ] );
-					++thumbnailIndex;
 				}
 
 				// выполнение задания на загрузку полноразмерного изображения
@@ -181,24 +215,46 @@ namespace ImageViewer
 		}
 
 		/// <summary>
-		/// Реализация загрузки thumbnail'а.
-		/// Выполняется во вспомогательном потоке
+		/// Реализация загрузки thumbnail'ов
 		/// </summary>
 		/// <param name="request"></param>
-		private new void DoLoadThumbnail( ThumbnailRequest request )
+		private void DoLoadThumbnails( ThumbnailRequest[] requests, CancellationToken ct )
 		{
-			Image thumbnail = null;
-			try
+			List<ThumbnailResponse> responses = new List<ThumbnailResponse>();
+
+			foreach( ThumbnailRequest request in requests )
 			{
-				thumbnail = base.DoLoadThumbnail( request );
-			}
-			catch( Exception e )
-			{
-				Debug.WriteLine( e );
+				if( ct.IsCancellationRequested )
+					break;
+
+				Image thumbnail = null;
+				try
+				{
+					thumbnail = base.DoLoadThumbnail( request );
+				}
+				catch( Exception e )
+				{
+					Debug.WriteLine( e );
+				}
+
+				if( thumbnail != null )
+				{
+					responses.Add( new ThumbnailResponse { Request = request, Thumbnail = thumbnail } );
+
+					if( responses.Count >= THUMBNAILS_BUCKET_SIZE )
+					{
+						// передача загруженных thumbnail'ов GUI-потоку
+						Context.BeginInvoke( ThumbnailsLoaded, ( object )responses.ToArray() );
+						responses.Clear();
+					}
+				}
 			}
 
-			if( thumbnail != null )
-				Context.BeginInvoke( ThumbnailLoaded, request, thumbnail );
+			if(	! ct.IsCancellationRequested && responses.Count > 0 )
+			{
+				// передача загруженных thumbnail'ов GUI-потоку
+				Context.BeginInvoke( ThumbnailsLoaded, ( object )responses.ToArray() );
+			}
 		}
 
 		/// <summary>

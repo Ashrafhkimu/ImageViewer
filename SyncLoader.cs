@@ -9,7 +9,7 @@ namespace ImageViewer
 	/// Синхронная реализация загрузчика.
 	/// В этой реализации
 	///   1) загруженные thumbnail'ы возвращаются через обработчик ThumbnailLoaded
-	///   2) изображение, загруженное из файла, отображается в переданном контроле PictureBox
+	///   2) полноразмерное изображение отображается в переданном контроле PictureBox
 	/// </summary>
 	class SyncLoader : Loader
 	{
@@ -30,22 +30,28 @@ namespace ImageViewer
 		/// <summary>
 		/// Загрузить список thumbnail'ов.
 		/// Отменяет предыдущий запрос на загрузку thumbnail'ов
-		/// Результаты возвращаются через обработчик ThumbnailLoaded.
+		/// Результаты возвращаются через обработчик ThumbnailsLoaded.
 		/// </summary>
 		/// <param name="requests"></param>
 		public override void LoadThumbnails( ThumbnailRequest[] requests )
 		{
-			if( ThumbnailLoaded != null )
+			if( ThumbnailsLoaded != null )
 				foreach( ThumbnailRequest request in requests )
 				{
+					Image thumbnail = null;
 					try
 					{
-						using( Image thumbnail = DoLoadThumbnail( request ) )
-							ThumbnailLoaded( request, thumbnail );
+						thumbnail = DoLoadThumbnail( request );
 					}
 					catch( Exception e )
 					{
 						Debug.WriteLine( e );
+					}
+
+					if( thumbnail != null )
+					{
+						// для большей интерактивности вызываем обработчик на каждый загруженный thumbnail
+						ThumbnailsLoaded( new[] { new ThumbnailResponse { Request = request, Thumbnail = thumbnail } } );
 					}
 				}
 		}

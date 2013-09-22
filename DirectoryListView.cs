@@ -83,7 +83,7 @@ namespace ImageViewer
 			Thumbnails.ImageSize = new Size( Loader.ThumbnailSize, Loader.ThumbnailSize );
 			LargeImageList = Thumbnails;
 
-			Loader.ThumbnailLoaded += Loader_ThumbnailLoaded;
+			Loader.ThumbnailsLoaded += Loader_ThumbnailsLoaded;
 		}
 
 		/// <summary>
@@ -192,26 +192,29 @@ namespace ImageViewer
 		}
 
 		/// <summary>
-		/// Обработчик загрузки thumbnail'а.
-		/// Проставляем thumbnail соответствующему элементу списка.
+		/// Обработчик загрузки thumbnail'ов.
+		/// Проставляет thumbnail'ы соответствующим элементам списка.
 		/// </summary>
-		/// <param name="files"></param>
-		private void Loader_ThumbnailLoaded( Loader.ThumbnailRequest _request, Image thumbnail )
+		/// <param name="responses"></param>
+		private void Loader_ThumbnailsLoaded( Loader.ThumbnailResponse[] responses )
 		{
-			ThumbnailRequest request = ( ThumbnailRequest ) _request;
-			using( thumbnail )
+			foreach( var response in responses )
 			{
-				// Обработчик загрузки thumbnail'а может сработать после того как содержимое окна поменялось.
-				// Элемента, для которого загрузили thumbnail, уже может не быть в списке.
-				if( request.ItemIndex < Items.Count )
-				{	 
-					ListViewItem item = Items[ request.ItemIndex ];
-					// проверка, что thumbnail и элемент соответствуют одному файлу
-					if( ( string )item.Tag == request.FilePath )
-					{
-						// добавляем thumbnail в ImageList и используем его для элемента
-						Thumbnails.Images.Add( request.FilePath, thumbnail );
-						item.ImageKey = request.FilePath;
+				ThumbnailRequest request = ( ThumbnailRequest ) response.Request;
+				using( response.Thumbnail )
+				{
+					// Обработчик загрузки thumbnail'а может сработать после того как содержимое окна поменялось.
+					// Элемента, для которого загрузили thumbnail, уже может не быть в списке.
+					if( request.ItemIndex < Items.Count )
+					{	 
+						ListViewItem item = Items[ request.ItemIndex ];
+						// проверка, что thumbnail и элемент соответствуют одному файлу
+						if( ( string )item.Tag == request.FilePath )
+						{
+							// добавляем thumbnail в ImageList и используем его для элемента
+							Thumbnails.Images.Add( request.FilePath, response.Thumbnail );
+							item.ImageKey = request.FilePath;
+						}
 					}
 				}
 			}

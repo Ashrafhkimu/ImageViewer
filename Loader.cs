@@ -27,21 +27,42 @@ namespace ImageViewer
 		}
 
 		/// <summary>
-		/// Обработчик загрузки thumbnail'а
+		/// Результат загрузки thumbnail'а
 		/// </summary>
-		/// <param name="request">Исходный запрос</param>
-		/// <param name="thumbnail">Загруженный thumbnail</param>
-		public delegate void ThumbnailLoadedHandler( ThumbnailRequest request, Image thumbnail );
+		public class ThumbnailResponse
+		{
+			/// <summary>
+			/// Соответствующий запрос на загрузку
+			/// </summary>
+			public ThumbnailRequest Request;
+
+			/// <summary>
+			/// Загруженный thumbnail
+			/// </summary>
+			public Image Thumbnail;
+		}
 
 		/// <summary>
-		/// Обработчик загрузки thumbnail'а
+		/// Обработчик загрузки thumbnail'ов.
+		/// Принимает сразу пачку загруженных thumbnail'ов, но совсем необязательно это все запрошенные thumbnail'ы
+		/// (обработчик может вызываться несколько раз на один запрос на загрузку thumbnail'ов.
+		/// Обязанность вызова Dispose для загруженных thumbnail'ов возлагается на обработчик!
 		/// </summary>
-		public ThumbnailLoadedHandler ThumbnailLoaded;
+		/// <param name="responses"></param>
+		public delegate void ThumbnailsLoadedHandler( ThumbnailResponse[] responses );
+
+		/// <summary>
+		/// Обработчик загрузки thumbnail'ов.
+		/// Принимает сразу пачку загруженных thumbnail'ов, но совсем не обязательно это все запрошенные thumbnail'ы
+		/// (обработчик может вызываться несколько раз на один запрос на загрузку thumbnail'ов).
+		/// Обязанность вызова Dispose для загруженных thumbnail'ов возлагается на обработчик!
+		/// </summary>
+		public ThumbnailsLoadedHandler ThumbnailsLoaded;
 
 		/// <summary>
 		/// Загрузить список thumbnail'ов.
 		/// Отменяет предыдущий запрос на загрузку thumbnail'ов
-		/// Результаты возвращаются через обработчик ThumbnailLoaded.
+		/// Результаты возвращаются через обработчик ThumbnailsLoaded.
 		/// </summary>
 		/// <param name="requests"></param>
 		public abstract void LoadThumbnails( ThumbnailRequest[] requests );
