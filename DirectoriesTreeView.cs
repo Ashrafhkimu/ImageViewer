@@ -32,6 +32,54 @@ namespace ImageViewer
 		}
 
 		/// <summary>
+		/// Раскрыть в дереве путь в файловой системе от корня до указанной папки.
+		/// После этого узел, соответствующий указанной папке, будет выделен.
+		/// 
+		/// Например, если передан путь "D:\dir\subdir", будут раскрыты узлы,
+		/// соответствующие папкам "D:\" и "D:\dir", и после этого выделен узел,
+		/// соответствующий папке "D:\dir\subdir"
+		/// </summary>
+		/// <param name="dirpath"></param>
+		public void ExpandDirectory( string dirpath )
+		{
+			TreeNodeCollection nodes = Nodes;
+
+			string[] parts = dirpath.Split( Path.DirectorySeparatorChar );
+			string path = "";
+
+			// для каждой части пути в файловой системе
+			for( int i = 0; i < parts.Length; i++ )
+			{
+				path = Path.Combine( path + Path.DirectorySeparatorChar, parts[i] );
+
+				// ищем в дереве узел, соответствующий части пути
+				bool found = false;
+				foreach( TreeNode node in nodes )
+				{
+					string nodePath = ( ( NodeInfo )node.Tag ).DirectoryPath;
+					nodePath = nodePath.TrimEnd( Path.DirectorySeparatorChar );
+					if( nodePath == path )
+					{
+						if( i == parts.Length - 1 )
+						{
+							// указанная папка не раскрывается, а делается выделенной
+							SelectedNode = node;
+							return;
+						}
+						else
+							node.Expand();
+						
+						nodes = node.Nodes;
+						found = true;
+						break;
+					}
+				}
+				if( ! found )
+					break;
+			}
+		}
+
+		/// <summary>
 		/// Динамически подгружаем подпапки при разворачивании узла дерева
 		/// </summary>
 		/// <param name="e"></param>

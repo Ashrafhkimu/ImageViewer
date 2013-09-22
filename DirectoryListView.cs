@@ -20,14 +20,20 @@ namespace ImageViewer
 		/// Полный путь к объекту на файловой системе, которому соответствует
 		/// выбранный элемент, или null если выбранного элемента нет
 		/// </param>
-		public delegate void SelectionChangedHandler( string filepath );
+		public delegate void ItemHandler( string filepath );
 
 		/// <summary>
-		/// Обработчик выбора графического файла в дереве.
+		/// Обработчик выбора графического файла в окне.
 		/// В качестве параметра обработчику передаётся путь к файлу или null,
 		/// если в списке ничего не выбрано, либо выбран не графический файл.
 		/// </summary>
-		public event SelectionChangedHandler ImageSelectionChanged;
+		public event ItemHandler ImageActivated;
+
+		/// <summary>
+		/// Обработчик выбора папки в окне.
+		/// В качестве параметра обработчику передаётся путь к папке.
+		/// </summary>
+		public event ItemHandler FolderActivated;
 
 		/// <summary>
 		/// Список расширений.  Если название файла имеет одно из
@@ -56,6 +62,11 @@ namespace ImageViewer
 		private ImageList Thumbnails;
 
 		/// <summary>
+		/// Путь к текущей отображённой папке
+		/// </summary>
+		private string CurrentDirectoryPath = "";
+
+		/// <summary>
 		/// Проинициализировать компонент.
 		/// Необходимо вызвать этот метод перед использованием компонента
 		/// </summary>
@@ -81,6 +92,10 @@ namespace ImageViewer
 		/// <param name="dirpath">Полный путь к папке</param>
 		public void LoadDirectory( string dirpath )
 		{
+			// игнорируем повторный вызов
+			if( CurrentDirectoryPath.TrimEnd( Path.DirectorySeparatorChar ) == dirpath.TrimEnd( Path.DirectorySeparatorChar ) )
+				return;
+
 			Items.Clear();
 
 			// очистка старых thumbnail'ов, чтобы не занимали память
@@ -122,16 +137,18 @@ namespace ImageViewer
 			}
 
 			Loader.LoadThumbnails( requests.ToArray() );
+
+			CurrentDirectoryPath = dirpath;
 		}
 
 		/// <summary>
-		/// При возникновении события SelectedIndexChanged вызываем наше собственное ImageSelectionChanged,
+		/// При возникновении события SelectedIndexChanged вызываем наше собственное ImageActivated,
 		/// обработчику которого передаём полный путь к выбранному графическому файлу
 		/// </summary>
 		/// <param name="e"></param>
 		protected override void OnSelectedIndexChanged( EventArgs e )
 		{
-			if( ImageSelectionChanged != null )
+			if( ImageActivated != null )
 			{
 				string filepath = null;
 				if( SelectedItems.Count > 0 )
@@ -141,10 +158,27 @@ namespace ImageViewer
 					if( ! ItemIsFolder( item ) )
 						filepath = ( string )item.Tag;
 				}
-				ImageSelectionChanged( filepath );
+				ImageActivated( filepath );
 			}
 
 			base.OnSelectedIndexChanged( e );
+		}
+
+		/// <summary>
+		/// При возникновении события ItemActivate на элементе, соответствующей папке на файловой системе,
+		/// вызываем событие FolderActivated
+		/// </summary>
+		/// <param name="e"></param>
+		protected override void OnItemActivate( EventArgs e )
+		{
+			if( FolderActivated != null )
+			{
+				ListViewItem item = SelectedItems[0];
+				if( ItemIsFolder( item ) )
+					 FolderActivated( ( string )item.Tag );
+			}
+
+			base.OnItemActivate( e );
 		}
 
 		/// <summary>

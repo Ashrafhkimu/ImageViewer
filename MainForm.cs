@@ -2,6 +2,7 @@
 using System.Drawing;
 using System.Reflection;
 using System.Windows.Forms;
+using System.IO;
 
 namespace ImageViewer
 {
@@ -35,7 +36,8 @@ namespace ImageViewer
 			Image defaultImageThumbnail = LoadEmbeddedImage( "ImageViewer.res.image.png" );
 			Image folderThumbnail = LoadEmbeddedImage( "ImageViewer.res.folder.png" );
 			DirectoryView.InitializeComponent( Loader, defaultImageThumbnail, folderThumbnail );
-			DirectoryView.ImageSelectionChanged += DirectoryView_ImageSelectionChanged;
+			DirectoryView.ImageActivated += DirectoryView_ImageActivated;
+			DirectoryView.FolderActivated += DirectoryView_FolderActivated;
 		}
 
 		/// <summary>
@@ -90,13 +92,13 @@ namespace ImageViewer
 			DirectoryView.LoadDirectory( args.DirectoryPath );
 
 			// руками вызываем обработчик изменения выбранного графического файла
-			DirectoryView_ImageSelectionChanged( null );
+			DirectoryView_ImageActivated( null );
 		}
 
 		/// <summary>
 		/// Обработчик выбора графического файла
 		/// </summary>
-		private void DirectoryView_ImageSelectionChanged( string filepath )
+		private void DirectoryView_ImageActivated( string filepath )
 		{
 			if( filepath != null )
 				Loader.LoadImage( filepath );
@@ -105,6 +107,18 @@ namespace ImageViewer
 				PictureBox.Image = null;
 				Loader.CancelLoadImage();
 			}
+		}
+
+		/// <summary>
+		/// Обработчик выбора папки
+		/// </summary>
+		/// <param name="dirpath"></param>
+		private void DirectoryView_FolderActivated( string dirpath )
+		{
+			DirectoryView.LoadDirectory( dirpath );
+
+			// чтобы пользователю было легче ориентироваться, раскрываем путь к дереве
+			DirectoriesTree.ExpandDirectory( dirpath );
 		}
 
 		/// <summary>

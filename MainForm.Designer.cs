@@ -68,6 +68,7 @@
 			// DirectoriesTree
 			// 
 			this.DirectoriesTree.Dock = System.Windows.Forms.DockStyle.Fill;
+			this.DirectoriesTree.HideSelection = false;
 			this.DirectoriesTree.HotTracking = true;
 			this.DirectoriesTree.Location = new System.Drawing.Point(0, 0);
 			this.DirectoriesTree.Name = "DirectoriesTree";
