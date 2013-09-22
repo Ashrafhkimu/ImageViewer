@@ -33,8 +33,9 @@ namespace ImageViewer
 
 			// инициализация окна просмотра содержимого папки
 			Image defaultImageThumbnail = LoadEmbeddedImage( "ImageViewer.res.image.png" );
-			DirectoryView.InitializeComponent( Loader, defaultImageThumbnail );
-			DirectoryView.SelectedIndexChanged += DirectoryView_SelectedIndexChanged;
+			Image folderThumbnail = LoadEmbeddedImage( "ImageViewer.res.folder.png" );
+			DirectoryView.InitializeComponent( Loader, defaultImageThumbnail, folderThumbnail );
+			DirectoryView.ImageSelectionChanged += DirectoryView_ImageSelectionChanged;
 		}
 
 		/// <summary>
@@ -88,23 +89,17 @@ namespace ImageViewer
 		{
 			DirectoryView.LoadDirectory( args.DirectoryPath );
 
-			// руками вызываем обработчик изменения выбранного элемента списка
-			DirectoryView_SelectedIndexChanged( null, null );
+			// руками вызываем обработчик изменения выбранного графического файла
+			DirectoryView_ImageSelectionChanged( null );
 		}
 
 		/// <summary>
-		/// Обработчик выбора файла в списке файлов.
-		/// Использует загрузчик для загрузки изображения из файла.
+		/// Обработчик выбора графического файла
 		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void DirectoryView_SelectedIndexChanged( object sender, EventArgs e )
+		private void DirectoryView_ImageSelectionChanged( string filepath )
 		{
-			if( DirectoryView.SelectedItems.Count == 1 )
-			{
-				string filepath = ( string )DirectoryView.SelectedItems[0].Tag;
+			if( filepath != null )
 				Loader.LoadImage( filepath );
-			}
 			else
 			{
 				PictureBox.Image = null;

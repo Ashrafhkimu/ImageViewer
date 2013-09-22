@@ -14,6 +14,22 @@ namespace ImageViewer
 	class DirectoryListView : ListView
 	{
 		/// <summary>
+		/// Обработчик выбора элемента в окне
+		/// </summary>
+		/// <param name="filepath">
+		/// Полный путь к объекту на файловой системе, которому соответствует
+		/// выбранный элемент, или null если выбранного элемента нет
+		/// </param>
+		public delegate void SelectionChangedHandler( string filepath );
+
+		/// <summary>
+		/// Обработчик выбора графического файла в дереве.
+		/// В качестве параметра обработчику передаётся путь к файлу или null,
+		/// если в списке ничего не выбрано, либо выбран не графический файл.
+		/// </summary>
+		public event SelectionChangedHandler ImageSelectionChanged;
+
+		/// <summary>
 		/// Список расширений.  Если название файла имеет одно из
 		/// перечисленных расширений, файл считается изображением
 		/// </summary>
@@ -30,6 +46,11 @@ namespace ImageViewer
 		private Image DefaultImageThumbnail;
 
 		/// <summary>
+		/// Thumbnail для папок
+		/// </summary>
+		private Image FolderThumbnail;
+
+		/// <summary>
 		/// ImageList для thumbnail'ов
 		/// </summary>
 		private ImageList Thumbnails;
@@ -40,10 +61,12 @@ namespace ImageViewer
 		/// </summary>
 		/// <param name="loader">Загрузчик</param>
 		/// <param name="defaultImageThumbnail">Thumbnail по умолчанию для графических файлов</param>
-		public void InitializeComponent( Loader loader, Image defaultImageThumbnail )
+		/// <param name="folderThumbnail">Thumbnail для папок</param>
+		public void InitializeComponent( Loader loader, Image defaultImageThumbnail, Image folderThumbnail )
 		{
 			Loader = loader;
 			DefaultImageThumbnail = defaultImageThumbnail;
+			FolderThumbnail = folderThumbnail;
 
 			Thumbnails = new ImageList();
 			Thumbnails.ImageSize = new Size( Loader.ThumbnailSize, Loader.ThumbnailSize );
@@ -63,12 +86,22 @@ namespace ImageViewer
 			// очистка старых thumbnail'ов, чтобы не занимали память
 			Thumbnails.Images.Clear();
 			Thumbnails.Images.Add( "image", DefaultImageThumbnail );
+			Thumbnails.Images.Add( "folder", FolderThumbnail );
 
 			List<ThumbnailRequest> requests = new List<ThumbnailRequest>();
 
 			try
 			{
 				DirectoryInfo dir = new DirectoryInfo( dirpath );
+
+				// обработка подпапок
+				foreach( DirectoryInfo subdir in dir.GetDirectories() )
+				{
+					ListViewItem item = new ListViewItem( subdir.Name );
+					item.ImageKey = "folder";
+					item.Tag = subdir.FullName;
+					Items.Add( item );
+				}
 
 				// обработка графических файлов в папке
 				foreach( FileInfo file in dir.GetFiles() )
@@ -89,6 +122,39 @@ namespace ImageViewer
 			}
 
 			Loader.LoadThumbnails( requests.ToArray() );
+		}
+
+		/// <summary>
+		/// При возникновении события SelectedIndexChanged вызываем наше собственное ImageSelectionChanged,
+		/// обработчику которого передаём полный путь к выбранному графическому файлу
+		/// </summary>
+		/// <param name="e"></param>
+		protected override void OnSelectedIndexChanged( EventArgs e )
+		{
+			if( ImageSelectionChanged != null )
+			{
+				string filepath = null;
+				if( SelectedItems.Count > 0 )
+				{
+					// в списке может быть выбран только один элемент, поэтому достаточно проверить его
+					ListViewItem item = SelectedItems[0];
+					if( ! ItemIsFolder( item ) )
+						filepath = ( string )item.Tag;
+				}
+				ImageSelectionChanged( filepath );
+			}
+
+			base.OnSelectedIndexChanged( e );
+		}
+
+		/// <summary>
+		/// Соответствует ли элемент списка папке на файловой системе?
+		/// </summary>
+		/// <param name="item"></param>
+		/// <returns></returns>
+		private bool ItemIsFolder( ListViewItem item )
+		{
+			return item.ImageKey == "folder";
 		}
 
 		/// <summary>
