@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace ImageViewer
@@ -18,9 +19,7 @@ namespace ImageViewer
 	//      который позволяет удобно выполнить указанный обработчик в GUI-потоке.
 	//    - Загрузку thumbnail'ов целесообразно выполнять в нескольких потоках,
 	//      поэтому используется метод ThreadPool.QueueUserWorkItem.
-	//    - Для загрузки полноразмерного изображения используется отдельный вспомогательный поток.
-	//      Передача заданий потоку и синхронизация реализованы с использованием "мониторов",
-	//      а именно блоков lock(...) и методов класса Monitor.
+	//    - Для загрузки полноразмерного изображения используется Task.
 	class AsyncLoader : Loader
 	{
 		/// <summary>
@@ -56,32 +55,19 @@ namespace ImageViewer
 		private int MAX_THUMBNAIL_TASKS = 2;
 
 		/// <summary>
-		/// Структура данных для хранения заданий, поставленных вспомогательному потоку
-		/// </summary>
-		private struct DataStruct
-		{
-			public bool NeedLoadImage;
-			public string ImageFilePath;
-		}
-
-		/// <summary>
-		/// Описание заданий, поставленных вспомогательному потоку
-		/// </summary>
-		// вынесено в структуру, чтобы удобнее было копировать
-		// все параметры заданий целиком (см. код ниже)
-		private DataStruct Data;
-		
-		/// <summary>
-		/// Объект синхронизации
-		/// </summary>
-		// не используем для синхронизации this, потому что lock( this ) считается дурной
-		// практикой, хотя и безвредной в данной конкретной программе
-		private object _lock = new object();
-
-		/// <summary>
 		/// Объект отмены для задач по загрузке thumbnail'ов
 		/// </summary>
 		private CancellationTokenSource ThumbnailsCts;
+
+		/// <summary>
+		/// Задача загрузки полноразмерного изображения
+		/// </summary>
+		private Task ImageTask;
+
+		/// <summary>
+		/// Объект отмены для задачи загрузки полноразмерного изображения
+		/// </summary>
+		private CancellationTokenSource ImageCts;
 
 		/// <summary>
 		/// Конструктор
@@ -93,12 +79,6 @@ namespace ImageViewer
 		public AsyncLoader( Control context )
 		{
 			Context = context;
-
-			// Запуск потока для асинхронной загрузки полноразмерных изображений.
-			// Должен быть фоновым (background), чтобы его наличие не блокировало завершение процесса.
-			Thread thread = new Thread( ThreadFunction );
-			thread.IsBackground = true;
-			thread.Start();
 		}
 
 		/// <summary>
@@ -158,12 +138,17 @@ namespace ImageViewer
 		/// <param name="filepath">Полный путь к файлу</param>
 		public override void LoadImage( string filepath )
 		{
-			lock( _lock )
-			{
-				Data.ImageFilePath = filepath;
-				Data.NeedLoadImage = true;
-				Monitor.Pulse( _lock );
-			}
+			// отмена предыдущей задачи
+			if( ImageCts != null )
+				ImageCts.Cancel();
+
+			ImageCts = new CancellationTokenSource();
+
+			// запуск новой задачи
+			CancellationToken ct = ImageCts.Token;
+			Task previousTask = ImageTask;
+			ImageTask = new Task( delegate { DoLoadImage( filepath, ct, previousTask ); }, ct );
+			ImageTask.Start();
 		}
 
 		/// <summary>
@@ -174,43 +159,19 @@ namespace ImageViewer
 		/// </summary>
 		public override void CancelLoadImage()
 		{
-			lock( _lock )
+			// отмена предыдущей задачи
+			if( ImageCts != null )
+				ImageCts.Cancel();
+
+			ImageCts = null;
+
+			if( ImageTask != null )
 			{
-				Data.ImageFilePath = null;
-				Data.NeedLoadImage = true;
-				Monitor.Pulse( _lock );
-			}
-		}
-
-		/// <summary>
-		/// Метод, выполняющийся во вспомогательном потоке
-		/// </summary>
-		private void ThreadFunction()
-		{
-			DataStruct data;
-
-			while( true )
-			{
-				lock( _lock )
-				{
-					// если заданий ещё нет, блокируем поток в ожидании их поступления
-					if( ! Data.NeedLoadImage )
-						Monitor.Wait( _lock );
-				
-					// копируем "слепок" заданий на текущий момент, для дальнейшего использования вне блокировки
-					data = Data;
-
-					Data.NeedLoadImage = false;
-				}
-
-				// выполнение задания на загрузку полноразмерного изображения
-				if( ImageLoaded != null && data.NeedLoadImage )
-				{
-					if( data.ImageFilePath == null )
-						DoCancelLoadImage();
-					else
-						DoLoadImage( data.ImageFilePath );
-				}
+				// запуск новой задачи
+				// передача сообщения в GUI-поток должна выполниться после завершения предыдущей задачи!
+				ImageTask = ImageTask.ContinueWith( previousTask => {
+					Context.BeginInvoke( ImageLoaded, ( Image )null );
+				});
 			}
 		}
 
@@ -262,8 +223,16 @@ namespace ImageViewer
 		/// Выполняется во вспомогательном потоке
 		/// </summary>
 		/// <param name="filepath"></param>
-		private void DoLoadImage( string filepath )
+		/// <param name="ct">Объект отмены</param>
+		/// <param name="previousTask">
+		/// Предыдущая задача загрузки или отмены изображения,
+		/// или null если такой задачи нет
+		/// </param>
+		private void DoLoadImage( string filepath, CancellationToken ct, Task previousTask )
 		{
+			if( ct.IsCancellationRequested )
+				return;
+
 			Image image = null;
 			try
 			{
@@ -274,17 +243,17 @@ namespace ImageViewer
 				Debug.WriteLine( e );
 			}
 
-			// при ошибке загрузки изображения обработчик вызывается с аргументов image = null
-			Context.BeginInvoke( ImageLoaded, image );
-		}
+			if( ct.IsCancellationRequested )
+				return;
 
-		/// <summary>
-		/// Реализация отмены загрузки изображения.
-		/// Выполняется во вспомогательном потоке.
-		/// </summary>
-		private void DoCancelLoadImage()
-		{
-			Context.BeginInvoke( ImageLoaded, ( Image )null );
+			// передача сообщения в GUI-поток должна выполниться после завершения предыдущей задачи,
+			// чтобы не получилось, что GUI-поток получит изображение, запрошенное ранее,
+			// вместо изображения, запрошенного последним
+			if( previousTask != null )
+				previousTask.Wait();
+
+			// при ошибке загрузки изображения обработчик вызывается с аргументом image = null
+			Context.BeginInvoke( ImageLoaded, image );
 		}
 	}
 }
