@@ -67,6 +67,11 @@ namespace ImageViewer
 		private string CurrentDirectoryPath = "";
 
 		/// <summary>
+		/// Номер первого по порядку элемента списка, для которого ещё не загрузили thumbnail.
+		/// </summary>
+		private int NextSequentialThumbnailIndex = 0;
+
+		/// <summary>
 		/// Проинициализировать компонент.
 		/// Необходимо вызвать этот метод перед использованием компонента
 		/// </summary>
@@ -103,8 +108,6 @@ namespace ImageViewer
 			Thumbnails.Images.Add( "image", DefaultImageThumbnail );
 			Thumbnails.Images.Add( "folder", FolderThumbnail );
 
-			List<ThumbnailRequest> requests = new List<ThumbnailRequest>();
-
 			try
 			{
 				DirectoryInfo dir = new DirectoryInfo( dirpath );
@@ -114,7 +117,7 @@ namespace ImageViewer
 				{
 					ListViewItem item = new ListViewItem( subdir.Name );
 					item.ImageKey = "folder";
-					item.Tag = subdir.FullName;
+					item.Tag = new ItemInfo( subdir.FullName );
 					Items.Add( item );
 				}
 
@@ -124,11 +127,8 @@ namespace ImageViewer
 					{
 						ListViewItem item = new ListViewItem( file.Name );
 						item.ImageKey = "image"; // пока не загружен thumbnail, используем thumbnail по умолчанию
-						item.Tag = file.FullName;
+						item.Tag = new ItemInfo( file.FullName );
 						item = Items.Add( item );
-
-						// добавляем задание на загрузку thumbnail'а для этого файла
-						requests.Add( new ThumbnailRequest { FilePath = file.FullName, ItemIndex = item.Index } );
 					}
 			}
 			catch( Exception e )
@@ -136,9 +136,12 @@ namespace ImageViewer
 				Debug.WriteLine( e );
 			}
 
-			Loader.LoadThumbnails( requests.ToArray() );
-
 			CurrentDirectoryPath = dirpath;
+
+			Loader.CancelLoadThumbnails();
+			NextSequentialThumbnailIndex = 0;
+			for( int i = 0; i < Loader.RecommendedThumbnailTasksCount; i++ )
+				LoadNextThumbnails();
 		}
 
 		/// <summary>
@@ -156,7 +159,7 @@ namespace ImageViewer
 					// в списке может быть выбран только один элемент, поэтому достаточно проверить его
 					ListViewItem item = SelectedItems[0];
 					if( ! ItemIsFolder( item ) )
-						filepath = ( string )item.Tag;
+						filepath = ( ( ItemInfo )item.Tag ).FilePath;
 				}
 				ImageActivated( filepath );
 			}
@@ -175,7 +178,7 @@ namespace ImageViewer
 			{
 				ListViewItem item = SelectedItems[0];
 				if( ItemIsFolder( item ) )
-					 FolderActivated( ( string )item.Tag );
+					 FolderActivated( ( ( ItemInfo )item.Tag ).FilePath );
 			}
 
 			base.OnItemActivate( e );
@@ -194,29 +197,116 @@ namespace ImageViewer
 		/// <summary>
 		/// Обработчик загрузки thumbnail'ов.
 		/// Проставляет thumbnail'ы соответствующим элементам списка.
+		/// Добавляет очередную задачу по загрузке thumbnail'ов.
 		/// </summary>
 		/// <param name="responses"></param>
 		private void Loader_ThumbnailsLoaded( Loader.ThumbnailResponse[] responses )
 		{
+			// признак того, что обработчик вызван устаревшей задачей
+			bool outdated = true;
+
 			foreach( var response in responses )
 			{
 				ThumbnailRequest request = ( ThumbnailRequest ) response.Request;
 				using( response.Thumbnail )
 				{
-					// Обработчик загрузки thumbnail'а может сработать после того как содержимое окна поменялось.
-					// Элемента, для которого загрузили thumbnail, уже может не быть в списке.
+					// если обработчик вызван устаревшей задачей, содержимое окна поменялось и
+					// элемента, для которого загрузили thumbnail, уже может не быть в списке.
 					if( request.ItemIndex < Items.Count )
 					{	 
 						ListViewItem item = Items[ request.ItemIndex ];
-						// проверка, что thumbnail и элемент соответствуют одному файлу
-						if( ( string )item.Tag == request.FilePath )
+						// проверка, что это именно тот элемент списка, для которого вызывали загрузку thumbnail'а
+						if( request.Tag == item.Tag )
 						{
 							// добавляем thumbnail в ImageList и используем его для элемента
 							Thumbnails.Images.Add( request.FilePath, response.Thumbnail );
 							item.ImageKey = request.FilePath;
+							outdated = false;
 						}
 					}
 				}
+			}
+
+			// Добавление очередной задачи по загрузке thumbnail'ов.
+			// Не делаем, если обработчик вызван устаревшей задачей,
+			// потому что для нового содержимого списка уже создали новые задачи.
+			if( ! outdated )
+				LoadNextThumbnails();
+		}
+
+		/// <summary>
+		/// Добавить очередную задачу по загрузке thumbnail'ов
+		/// </summary>
+		private void LoadNextThumbnails()
+		{
+			List<ThumbnailRequest> requests = new List<ThumbnailRequest>();
+
+			// сначала добавляем задания на загрузку thumbnail'ов для файлов, которые видит пользователь
+			ListViewItem topItem = GetItemAt( ClientRectangle.X + 10, ClientRectangle.Y + 10 ); 
+			if( topItem != null )
+			{
+				int i = Math.Max( topItem.Index, NextSequentialThumbnailIndex );
+				GetSequentialThumbnailRequests( requests, ref i );
+				if( NextSequentialThumbnailIndex >= topItem.Index )
+					NextSequentialThumbnailIndex = i;
+			}
+
+			// если для файлов, которые видит пользователи, thumbnail'ы уже загружены (или загружаются),
+			// выполняем последовательную загрузку thumbnail'ов
+			if( requests.Count == 0 )
+				GetSequentialThumbnailRequests( requests, ref NextSequentialThumbnailIndex );
+
+			if( requests.Count > 0 )
+				Loader.LoadThumbnails( requests.ToArray() );
+		}
+
+		/// <summary>
+		/// Добавить в указанный список запросы на загрузку thumbnail'ов для элементов списка начиная с `i`.
+		/// Элементы списка, которые не являются графическими файлами или thumnail'ы для которых уже загружены
+		/// (или загружаются), пропускаются.
+		/// </summary>
+		/// <param name="requests"></param>
+		/// <param name="i"></param>
+		private void GetSequentialThumbnailRequests( List<ThumbnailRequest> requests, ref int i )
+		{
+			while( i < Items.Count && requests.Count < Loader.RecommendedThumbnailTaskRequestsCount )
+			{
+				ListViewItem item = Items[i];
+				if( item.ImageKey == "image" )
+				{
+					ItemInfo itemInfo = ( ItemInfo )item.Tag;
+					if( ! itemInfo.ThumbnailLoaded )
+					{
+						requests.Add( new ThumbnailRequest { FilePath = itemInfo.FilePath, ItemIndex = i, Tag = item.Tag });
+						itemInfo.ThumbnailLoaded = true;
+					}
+				}
+				i++;
+			}
+		}
+
+		/// <summary>
+		/// Структура, описывающая элемент списка
+		/// </summary>
+		class ItemInfo
+		{
+			/// <summary>
+			/// Полный путь к файлу или папке на файловой системе, которой соответствует элемент
+			/// </summary>
+			public string FilePath;
+
+			/// <summary>
+			/// Для этого элемента загружен (или загружается) thumbnail.
+			/// </summary>
+			public bool ThumbnailLoaded;
+
+			/// <summary>
+			/// Конструктор
+			/// </summary>
+			/// <param name="filepath">Полный путь к файлу или папке на файловой системе, которой соответствует элемент</param>
+			public ItemInfo( string filepath )
+			{
+				FilePath = filepath;
 			}
 		}
 
@@ -230,6 +320,12 @@ namespace ImageViewer
 			/// Позиция элемента ListView, которому необходимо проставить загруженный thumbnail
 			/// </summary>
 			public int ItemIndex;
+
+			/// <summary>
+			/// Вспомогательный объект для определения, что это именно тот
+			/// элемент списка, для которого вызывали загрузку thumbnail'а
+			/// </summary>
+			public object Tag;
 		}
 	}
 }

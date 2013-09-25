@@ -34,25 +34,26 @@ namespace ImageViewer
 		public ImageLoadedHandler ImageLoaded;
 
 		/// <summary>
+		/// Количество запросов загрузки thumbnail'ов, которое рекомендуется
+		/// передавать в одну задачу (в метод LoadThumbnails).
+		/// Чем меньше это значение, тем быстрее пользователь заметит прогрузку
+		/// thumbnail'ов, но тем медленнее загрузка thumbnail'ов будет работать в целом
+		/// </summary>
+		public override int RecommendedThumbnailTaskRequestsCount { get { return 5; } }
+
+		/// <summary>
+		/// Количество задач по загрузке thumbnail'ов, которое рекомендуется запускать
+		/// одновременно (количество вызовов LoadThumbnails).
+		/// Чем больше это значение, тем быстрее будут загружаться thumbnail'ы, но тем
+		/// сильнее будет загружаться GUI-поток.  Неразумно делать это значение сильно
+		/// бОльшим, чем количество ядер процессора.
+		/// </summary>
+		public override int RecommendedThumbnailTasksCount { get { return 2; } }
+
+		/// <summary>
 		/// Контрол WinForms, используемый для выполнения обработчиков в GUI-потоке
 		/// </summary>
 		private Control Context;
-
-		/// <summary>
-		/// Количество thumbnail'ов, которые возвращаются GUI-потоку за один раз.
-		/// Чем меньше это значение, тем быстрее пользователь заметит прогрузку
-		/// thumbnail'ов, но тем сильнее будет загружаться GUI-поток
-		/// (и будет медленнее реагировать на действия пользователя)
-		/// </summary>
-		private int THUMBNAILS_BUCKET_SIZE = 5;
-
-		/// <summary>
-		/// Максимальное количество задач по загрузке thumbnail'ов, которые потенциально
-		/// могут выполняться одновременно.  Чем больше это значение, тем быстрее будут
-		/// загружаться thumbnail'ы, но тем сильнее будет загружаться GUI-поток.
-		/// Неразумно делать это значение сильно бОльшим, чем количество ядер процессора.
-		/// </summary>
-		private int MAX_THUMBNAIL_TASKS = 2;
 
 		/// <summary>
 		/// Объект отмены для задач по загрузке thumbnail'ов
@@ -82,53 +83,33 @@ namespace ImageViewer
 		}
 
 		/// <summary>
-		/// Загрузить список thumbnail'ов.
-		/// Отменяет предыдущий запрос на загрузку thumbnail'ов
+		/// Добавить запросы в очередь на загрузку thumbnail'ов.
 		/// Результаты возвращаются через обработчик ThumbnailsLoaded.
 		/// </summary>
 		/// <param name="requests"></param>
 		public override void LoadThumbnails( ThumbnailRequest[] requests )
 		{
+			if( requests.Length > 0 )
+			{
+				if( ThumbnailsCts == null )
+					ThumbnailsCts = new CancellationTokenSource();
+				CancellationToken ct = ThumbnailsCts.Token;
+
+				ThreadPool.QueueUserWorkItem( delegate {
+					DoLoadThumbnails( requests, ct );
+				});
+			}
+		}
+
+		/// <summary>
+		/// Отменить текущие задачи по загрузке thumbnail'ов
+		/// </summary>
+		public override void CancelLoadThumbnails()
+		{
 			// отмена предыдущего запроса
 			if( ThumbnailsCts != null )
 				ThumbnailsCts.Cancel();
-
 			ThumbnailsCts = null;
-			if( requests.Length > 0 )
-			{
-				ThumbnailsCts = new CancellationTokenSource();
-				CancellationToken ct = ThumbnailsCts.Token;
-
-				List<ThumbnailRequest>[] requestsPerTask = new List<ThumbnailRequest>[ MAX_THUMBNAIL_TASKS ];
-
-				// Разбиваем массив запросов на подмассивы, так чтобы число
-				// подмассивов не превышало MAX_THUMBNAIL_TASKS.  Каждый подмассив
-				// затем обрабатывается отдельной задачей (task).
-				//
-				// Так как пользователю важно видеть подгрузку thumbnail'ов, распределяем
-				// запросы следующим образом: первые THUMBNAIL_BUCKET_SIZE запросов попадают в первый
-				// подмассив, вторые - во второй подмассив и так далее.  Когда подмассивы заканчиваются,
-				// по новой начинаем добавлять элементы в первый подмассив и далее.
-				//
-				int taskIndex = 0;
-				for( int i = 0; i < requests.Length; i += THUMBNAILS_BUCKET_SIZE )
-				{
-					if( requestsPerTask[ taskIndex ] == null )
-						requestsPerTask[ taskIndex ] = new List<ThumbnailRequest>();
-					for( int j = i; j < Math.Min( i + THUMBNAILS_BUCKET_SIZE, requests.Length ); j++ )
-						requestsPerTask[ taskIndex ].Add( requests[j] );
-					taskIndex = ( taskIndex + 1 ) % MAX_THUMBNAIL_TASKS;
-				}
-
-				foreach( List<ThumbnailRequest> taskRequests in requestsPerTask )
-					if( taskRequests != null )
-					{
-						ThumbnailRequest[] r = taskRequests.ToArray(); // осторожно с замыканиями!
-						ThreadPool.QueueUserWorkItem( delegate {
-							DoLoadThumbnails( r, ct );
-						});
-					}
-			}
 		}
 
 		/// <summary>
@@ -199,22 +180,19 @@ namespace ImageViewer
 				}
 
 				if( thumbnail != null )
-				{
 					responses.Add( new ThumbnailResponse { Request = request, Thumbnail = thumbnail } );
-
-					if( responses.Count >= THUMBNAILS_BUCKET_SIZE )
-					{
-						// передача загруженных thumbnail'ов GUI-потоку
-						Context.BeginInvoke( ThumbnailsLoaded, ( object )responses.ToArray() );
-						responses.Clear();
-					}
-				}
 			}
 
-			if(	! ct.IsCancellationRequested && responses.Count > 0 )
+			if(	! ct.IsCancellationRequested )
 			{
 				// передача загруженных thumbnail'ов GUI-потоку
 				Context.BeginInvoke( ThumbnailsLoaded, ( object )responses.ToArray() );
+			}
+			else
+			{
+				// чистка thumbnail'ов, которые успели подгрузить
+				foreach( ThumbnailResponse response in responses )
+					response.Thumbnail.Dispose();
 			}
 		}
 

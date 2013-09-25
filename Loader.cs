@@ -44,8 +44,6 @@ namespace ImageViewer
 
 		/// <summary>
 		/// Обработчик загрузки thumbnail'ов.
-		/// Принимает сразу пачку загруженных thumbnail'ов, но совсем необязательно это все запрошенные thumbnail'ы
-		/// (обработчик может вызываться несколько раз на один запрос на загрузку thumbnail'ов.
 		/// Обязанность вызова Dispose для загруженных thumbnail'ов возлагается на обработчик!
 		/// </summary>
 		/// <param name="responses"></param>
@@ -53,19 +51,36 @@ namespace ImageViewer
 
 		/// <summary>
 		/// Обработчик загрузки thumbnail'ов.
-		/// Принимает сразу пачку загруженных thumbnail'ов, но совсем не обязательно это все запрошенные thumbnail'ы
-		/// (обработчик может вызываться несколько раз на один запрос на загрузку thumbnail'ов).
 		/// Обязанность вызова Dispose для загруженных thumbnail'ов возлагается на обработчик!
 		/// </summary>
 		public ThumbnailsLoadedHandler ThumbnailsLoaded;
 
 		/// <summary>
-		/// Загрузить список thumbnail'ов.
-		/// Отменяет предыдущий запрос на загрузку thumbnail'ов
+		/// Запустить задачу по загрузке thumbnail'ов.
 		/// Результаты возвращаются через обработчик ThumbnailsLoaded.
 		/// </summary>
-		/// <param name="requests"></param>
+		/// <param name="requests">
+		/// Запросы по загрузке thumbnail'ов.
+		/// Рекомендуемое количество запросов - RecommendedThumbnailTaskRequestsCount
+		/// </param>
 		public abstract void LoadThumbnails( ThumbnailRequest[] requests );
+
+		/// <summary>
+		/// Количество запросов загрузки thumbnail'ов, которое рекомендуется
+		/// передавать в одну задачу (в метод LoadThumbnails)
+		/// </summary>
+		public virtual int RecommendedThumbnailTaskRequestsCount { get { return int.MaxValue; } }
+
+		/// <summary>
+		/// Количество задач по загрузке thumbnail'ов, которое рекомендуется запускать
+		/// одновременно (количество вызовов LoadThumbnails).
+		/// </summary>
+		public virtual int RecommendedThumbnailTasksCount { get { return 1; } }
+
+		/// <summary>
+		/// Отменить текущие задачи по загрузке thumbnail'ов
+		/// </summary>
+		public abstract void CancelLoadThumbnails();
 
 		/// <summary>
 		/// Загрузить изображение из указанного файла.

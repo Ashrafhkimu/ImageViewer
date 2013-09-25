@@ -28,8 +28,7 @@ namespace ImageViewer
 		}
 
 		/// <summary>
-		/// Загрузить список thumbnail'ов.
-		/// Отменяет предыдущий запрос на загрузку thumbnail'ов
+		/// Добавить запросы в очередь на загрузку thumbnail'ов.
 		/// Результаты возвращаются через обработчик ThumbnailsLoaded.
 		/// </summary>
 		/// <param name="requests"></param>
@@ -54,6 +53,13 @@ namespace ImageViewer
 						ThumbnailsLoaded( new[] { new ThumbnailResponse { Request = request, Thumbnail = thumbnail } } );
 					}
 				}
+		}
+
+		/// <summary>
+		/// Отменить текущие задачи по загрузке thumbnail'ов
+		/// </summary>
+		public override void CancelLoadThumbnails()
+		{
 		}
 
 		/// <summary>
